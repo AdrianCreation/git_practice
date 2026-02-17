@@ -1,0 +1,206 @@
+<?php
+
+/**
+ * Statsig RequireJS Initialization
+ * @var \Rightpoint\StatsigFE\Block\User $block
+ * @var \Magento\Framework\Escaper $escaper
+ */
+
+if (!$block->shouldRender()) {
+   return;
+}
+?>
+<script>
+window.statsigConfig = <?= /* @noEscape */ $block->getStatsigConfigJson() ?>;
+</script>
+
+<script>
+require(['statsig', 'jquery'], function(statsigManager, $) {
+    'use strict';
+
+    console.log('Statsig: RequireJS module loaded');
+    var config = window.statsigConfig;
+
+    var user = {
+        userID: '<?= $escaper->escapeJs($block->getUserId() ?: "guest-" . uniqid()) ?>',
+        custom: {
+            environment: config.environment,
+            store_id: window.currentWebsiteId,
+            customer_group: '<?= $escaper->escapeJs($block->getCustomerGroup()) ?>'
+        }
+    };
+
+    window.StatsigReady = false;
+
+    statsigManager.initialize(config.clientKey, user, config.options).then(function() {
+        console.log('Statsig: Ready to use');
+        window.StatsigManager = statsigManager;
+        window.StatsigReady = true;
+
+        // Initialize dataLayer if it doesn't exist
+        window.dataLayer = window.dataLayer || [];
+
+        // Wrap SDK methods to push experiment data to GTM dataLayer
+        // This is needed because statsig-js v4.34.0 doesn't support event listeners
+        try {
+            var originalCheckGate = statsigManager.checkGate.bind(statsigManager);
+            var originalGetExperiment = statsigManager.getExperiment.bind(statsigManager);
+            var originalGetConfig = statsigManager.getConfig.bind(statsigManager);
+
+            // Wrap checkGate
+            statsigManager.checkGate = function(gateName) {
+                var result = originalCheckGate(gateName);
+
+                // Push to dataLayer
+                window.dataLayer.push({
+                    'event': 'experiment_viewed',
+                    'experiment_name': gateName,
+                    'variant_name': result ? 'enabled' : 'disabled',
+                    'statsig_stable_id': window.statsig.getStableID(),
+                    'experiment_type': 'gate'
+                });
+
+                console.log('Statsig: Gate checked and pushed to dataLayer', {
+                    experiment_name: gateName,
+                    variant_name: result ? 'enabled' : 'disabled'
+                });
+
+                return result;
+            };
+
+            // Wrap getExperiment
+            statsigManager.getExperiment = function(experimentName) {
+                var result = originalGetExperiment(experimentName);
+
+                if (result) {
+                    // Push to dataLayer
+                    window.dataLayer.push({
+                        'event': 'experiment_viewed',
+                        'experiment_name': experimentName,
+                        'variant_name': result.getGroupName ? result.getGroupName() : result.groupName || 'unknown',
+                        'statsig_stable_id': window.statsig.getStableID(),
+                        'experiment_type': 'experiment'
+                    });
+
+                    console.log('Statsig: Experiment retrieved and pushed to dataLayer', {
+                        experiment_name: experimentName,
+                        variant_name: result.getGroupName ? result.getGroupName() : result.groupName || 'unknown'
+                    });
+                }
+
+                return result;
+            };
+
+            // Wrap getConfig
+            statsigManager.getConfig = function(configName) {
+                var result = originalGetConfig(configName);
+
+                if (result) {
+                    // Push to dataLayer
+                    window.dataLayer.push({
+                        'event': 'experiment_viewed',
+                        'experiment_name': configName,
+                        'variant_name': result.getGroupName ? result.getGroupName() : result.groupName || 'default',
+                        'statsig_stable_id': window.statsig.getStableID(),
+                        'experiment_type': 'config'
+                    });
+
+                    console.log('Statsig: Config retrieved and pushed to dataLayer', {
+                        experiment_name: configName,
+                        variant_name: result.getGroupName ? result.getGroupName() : result.groupName || 'default'
+                    });
+                }
+
+                return result;
+            };
+
+            console.log('Statsig: DataLayer integration enabled (method wrapping)');
+        } catch (e) {
+            console.error('Statsig: Failed to set up dataLayer integration', e);
+        }
+
+        // Push initial statsig:ready event to dataLayer to notify GTM
+        window.dataLayer.push({
+            'event': 'statsig:ready',
+            'statsig_stable_id': window.statsig.getStableID()
+        });
+        console.log('Statsig: Pushed statsig:ready event to dataLayer');
+
+        // Page view tracking
+        if (config.trackPageViews) {
+            statsigManager.logEvent('page_view', null, {
+                url: window.location.href,
+                referrer: document.referrer
+            });
+        }
+
+        // Click tracking with exclusions and duplicity control
+        if (config.autoTrackClicks) {
+            $(document).on('click', function(e) {
+                var $target = $(e.target);
+
+                // exclude click using .no-track
+                if ($target.closest('footer').length > 0) {
+                    return;
+                }
+                if ($target.hasClass('no-track')) {
+                    return;
+                }
+
+                // prevent duplicity using data-flag
+                if ($target.data('tracked')) {
+                    return;
+                }
+                $target.data('tracked', true);
+
+                var metadata = {
+                    tag: $target.prop('tagName'),
+                    id: $target.attr('id') || null,
+                    class: $target.attr('class') || null,
+                    text: ($target.text() || '').trim().substring(0, 50),
+                    url: window.location.href
+                };
+
+                statsigManager.logEvent('click', null, metadata);
+                console.log('Statsig: click tracked →', metadata);
+            });
+        }
+
+        // add to cart tracking
+        $("#product-addtocart-button").on('click', function() {
+            var productId = $('input[name="sku"]').val() || null;
+            statsigManager.logEvent('add_to_cart', null, {
+                product_id: productId,
+                source: 'product_page'
+            });
+        });
+
+        // Custom event global helper
+        window.trackCustomEvent = function(eventName, value, metadata) {
+            if (window.StatsigManager) {
+                statsigManager.logEvent(eventName, value, metadata || {});
+                console.log('Statsig: Custom event tracked →', eventName, value, metadata);
+            }
+        };
+
+        // Feature flag helper
+        window.isFeatureEnabled = function(flag) {
+            return window.StatsigManager ? window.StatsigManager.checkGate(flag) : false;
+        };
+
+    }).catch(function(error) {
+        console.error('Statsig: Failed to initialize', error);
+    });
+});
+</script>
+
+<?php if ($block->isDebugMode()): ?>
+<div style="position: fixed; bottom: 10px; right: 10px; background: #f0f0f0; padding: 10px; border: 1px solid #ccc; z-index: 9999;">
+    <strong>Statsig Debug</strong><br>
+    Enabled: <?= $escaper->escapeHtml($block->isEnabled() ? 'Yes' : 'No') ?><br>
+    Client Key: <?= $escaper->escapeHtml(substr($block->getClientKey(), 0, 20)) ?>...<br>
+    Environment: <?= $escaper->escapeHtml($block->getEnvironment()) ?><br>
+    Auto-track Clicks: <?= $escaper->escapeHtml($block->isAutoTrackClicksEnabled() ? 'Yes' : 'No') ?><br>
+    Track Page Views: <?= $escaper->escapeHtml($block->isTrackPageViewsEnabled() ? 'Yes' : 'No') ?>
+</div>
+<?php endif; ?>

@@ -10,6 +10,9 @@ if (!$block->shouldRender()) {
    return;
 }
 ?>
+<!-- Statsig SDK CDN - Required for statsig-manager.js -->
+<script src="https://cdn.jsdelivr.net/npm/@statsig/js-client@3/build/statsig-js-client+session-replay+web-analytics.min.js" crossorigin="anonymous"></script>
+
 <script>
 window.statsigConfig = <?= /* @noEscape */ $block->getStatsigConfigJson() ?>;
 </script>

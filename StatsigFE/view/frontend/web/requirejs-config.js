@@ -1,14 +1,23 @@
 /**
- *  RequireJS configuration for statsig module
+ * RequireJS configuration for Statsig module
  */
 var config = {
     paths: {
-        'statsig-js-cdn': 'https://cdn.jsdelivr.net/npm/@statsig/js-client@3/build/statsig-js-client+session-replay+web-analytics.min',
-        'statsig': 'RightPoint_StatsigFE/js/vendor/statsig-manager'
+        'statsig-sdk': 'https://cdn.jsdelivr.net/npm/@statsig/js-client@3/build/statsig-js-client.min.js?apikey=client-Oz4jRziTwPJa9Bo8jf7f4kLEp3sERxQi4UWdXdO4aFK'
+
     },
     shim: {
-        'statsig-js-cdn': {
-            exports: 'Statsig'
+        'statsig-sdk': {
+            exports: 'statsig',
+            init: function() {
+                // Ensure the global statsig is available
+                return window.statsig || window.Statsig || this.statsig;
+            }
+        }
+    },
+    map: {
+        '*': {
+            'statsig': 'Rightpoint_StatsigFE/js/statsig-manager'
         }
     }
 };

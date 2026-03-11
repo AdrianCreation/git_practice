@@ -1,61 +1,58 @@
 /**
- * Statsig Manager - Modern SDK Integration
- * Requires Statsig SDK to be loaded via CDN script tag:
- * <script src="https://cdn.jsdelivr.net/npm/@statsig/js-client@3/build/statsig-js-client+session-replay+web-analytics.min.js" crossorigin="anonymous"></script>
+ * Statsig Manager - Proper RequireJS Integration
  */
-define([], function() {
+define([
+    'statsig-sdk'
+], function(statsigSDK) {
     'use strict';
 
+    console.log('Statsig Manager: Loaded SDK via RequireJS:', statsigSDK);
+
     var StatsigManager = {
-        client: null,
+        sdk: statsigSDK,
         isInitialized: false,
         user: null,
 
         /**
-         * Initialize Statsig with the modern SDK
-         * @param {string} clientKey - Your Statsig client SDK key
-         * @param {Object} user - User object with userID and other properties
-         * @param {Object} options - Statsig client options
-         * @returns {Promise}
+         * Initialize Statsig
          */
         initialize: function(clientKey, user, options) {
             var self = this;
 
-            // Check if Statsig SDK is loaded via CDN
-            if (typeof window.Statsig === 'undefined' || !window.Statsig.StatsigClient) {
-                console.error('Statsig Manager: Statsig SDK not loaded. Please include the CDN script tag.');
-                return Promise.reject('Statsig SDK not available');
+            console.log('Statsig Manager: Initializing with SDK v3...');
+
+            if (!this.sdk || !this.sdk.StatsigClient) {
+                console.error('Statsig Manager: SDK not properly loaded. SDK:', this.sdk);
+                return Promise.reject('SDK not available');
             }
 
-            try {
-                // Create a new StatsigClient instance
-                var StatsigClient = window.Statsig.StatsigClient;
-                this.client = new StatsigClient(clientKey, user, options || {});
-                this.user = user;
+            // Store user for later reference
+            this.user = user;
 
-                console.log('Statsig Manager: Initializing SDK...');
+            try {
+                // Create new StatsigClient instance (SDK v3 API)
+                var client = new this.sdk.StatsigClient(clientKey, user, options || {});
+                self.client = client;
 
                 // Initialize the client
-                return this.client.initializeAsync().then(function() {
+                return client.initializeAsync().then(function() {
                     self.isInitialized = true;
                     console.log('Statsig Manager: Initialized successfully');
 
+                    // Make globally available
+                    window.StatsigManager = self;
+                    window.statsigClient = client;
+                    window.statsig = client;
+
                     // Broadcast statsig:ready event for GTM integration
                     try {
-                        window.dispatchEvent(new CustomEvent('statsig:ready', {
-                            detail: {
-                                statsig: self.client,
-                                manager: self
-                            }
+                        window.dispatchEvent(new CustomEvent("statsig:ready", {
+                            detail: { client: client }
                         }));
                         console.log('Statsig Manager: Broadcasted statsig:ready event');
                     } catch (e) {
-                        console.warn('Statsig Manager: Failed to broadcast statsig:ready event', e);
+                        console.error('Statsig Manager: Failed to broadcast event', e);
                     }
-
-                    // Make globally available
-                    window.StatsigManager = self;
-                    window.statsigClient = self.client;
 
                     return self;
                 }).catch(function(error) {
@@ -69,31 +66,7 @@ define([], function() {
         },
 
         /**
-         * Update user and fetch new values
-         * @param {Object} user - Updated user object
-         * @returns {Promise}
-         */
-        updateUser: function(user) {
-            var self = this;
-            if (!this.client) {
-                console.warn('Statsig Manager: Client not initialized');
-                return Promise.reject('Client not initialized');
-            }
-
-            this.user = user;
-            return this.client.updateUserAsync(user).then(function() {
-                console.log('Statsig Manager: User updated successfully');
-                return self;
-            }).catch(function(error) {
-                console.error('Statsig Manager: User update failed', error);
-                throw error;
-            });
-        },
-
-        /**
          * Check feature gate
-         * @param {string} gateName - Name of the gate to check
-         * @returns {boolean}
          */
         checkGate: function(gateName) {
             if (!this.isInitialized || !this.client) {
@@ -104,125 +77,41 @@ define([], function() {
         },
 
         /**
-         * Get feature gate with details
-         * @param {string} gateName - Name of the gate
-         * @returns {Object} Gate object with value and details
-         */
-        getFeatureGate: function(gateName) {
-            if (!this.isInitialized || !this.client) {
-                console.warn('Statsig Manager: Not initialized');
-                return { value: false, details: { reason: 'Uninitialized' } };
-            }
-            return this.client.getFeatureGate(gateName);
-        },
-
-        /**
          * Get dynamic config
-         * @param {string} configName - Name of the config
-         * @returns {Object} Config object with get() method
          */
-        getDynamicConfig: function(configName) {
+        getConfig: function(configName) {
             if (!this.isInitialized || !this.client) {
                 console.warn('Statsig Manager: Not initialized');
-                return {
-                    value: {},
-                    get: function(key, fallback) { return fallback; }
-                };
+                return {};
             }
             return this.client.getDynamicConfig(configName);
         },
 
         /**
-         * Get dynamic config (legacy alias)
-         * @deprecated Use getDynamicConfig instead
-         */
-        getConfig: function(configName) {
-            return this.getDynamicConfig(configName);
-        },
-
-        /**
-         * Get experiment
-         * @param {string} experimentName - Name of the experiment
-         * @returns {Object} Experiment object with get() method and value
-         */
-        getExperiment: function(experimentName) {
-            if (!this.isInitialized || !this.client) {
-                console.warn('Statsig Manager: Not initialized');
-                return {
-                    value: {},
-                    get: function(key, fallback) { return fallback; }
-                };
-            }
-            return this.client.getExperiment(experimentName);
-        },
-
-        /**
-         * Get layer
-         * @param {string} layerName - Name of the layer
-         * @returns {Object} Layer object with get() method
-         */
-        getLayer: function(layerName) {
-            if (!this.isInitialized || !this.client) {
-                console.warn('Statsig Manager: Not initialized');
-                return {
-                    get: function(key, fallback) { return fallback; }
-                };
-            }
-            return this.client.getLayer(layerName);
-        },
-
-        /**
          * Log event
-         * @param {string|Object} eventNameOrObject - Event name or event object
-         * @param {*} value - Optional event value
-         * @param {Object} metadata - Optional event metadata
          */
-        logEvent: function(eventNameOrObject, value, metadata) {
+        logEvent: function(eventName, value, metadata) {
             if (!this.isInitialized || !this.client) {
                 console.warn('Statsig Manager: Not initialized');
                 return;
             }
-
-            // Support both old and new API styles
-            if (typeof eventNameOrObject === 'string') {
-                // Old style: logEvent(name, value, metadata)
-                this.client.logEvent({
-                    eventName: eventNameOrObject,
-                    value: value,
-                    metadata: metadata
-                });
-            } else {
-                // New style: logEvent({ eventName, value, metadata })
-                this.client.logEvent(eventNameOrObject);
-            }
-        },
-
-        /**
-         * Get client context (includes stableID)
-         * @returns {Object} Context with stableID and other info
-         */
-        getContext: function() {
-            if (!this.client) {
-                console.warn('Statsig Manager: Client not initialized');
-                return {};
-            }
-            return this.client.getContext();
-        },
-
-        /**
-         * Shutdown the SDK and flush events
-         * @returns {Promise}
-         */
-        shutdown: function() {
-            if (!this.client) {
-                console.warn('Statsig Manager: Client not initialized');
-                return Promise.resolve();
-            }
-
-            console.log('Statsig Manager: Shutting down...');
-            return this.client.shutdown().then(function() {
-                console.log('Statsig Manager: Shutdown complete');
+            // SDK v3 uses an object for logEvent
+            this.client.logEvent({
+                eventName: eventName,
+                value: value,
+                metadata: metadata
             });
+        },
+
+        /**
+         * Get experiment data
+         */
+        getExperiment: function(experimentName) {
+            if (!this.isInitialized || !this.client) {
+                console.warn('Statsig Manager: Not initialized');
+                return null;
+            }
+            return this.client.getExperiment(experimentName);
         }
     };
 

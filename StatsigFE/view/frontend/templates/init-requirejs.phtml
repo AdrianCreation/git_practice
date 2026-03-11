@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Statsig RequireJS Initialization
  * @var \Rightpoint\StatsigFE\Block\User $block
@@ -15,7 +14,7 @@ window.statsigConfig = <?= /* @noEscape */ $block->getStatsigConfigJson() ?>;
 </script>
 
 <script>
-require(['statsig-js-cdn', 'statsig', 'jquery'], function(statsigCdn, statsigManager, $) {
+require(['statsig', 'jquery'], function(statsigManager, $) {
     'use strict';
 
     console.log('Statsig: RequireJS module loaded');
@@ -56,7 +55,7 @@ require(['statsig-js-cdn', 'statsig', 'jquery'], function(statsigCdn, statsigMan
                     'event': 'experiment_viewed',
                     'experiment_name': gateName,
                     'variant_name': result ? 'enabled' : 'disabled',
-                    'statsig_stable_id': window.statsig.getStableID(),
+                    'statsig_stable_id': window.statsigClient.getContext().stableID,
                     'experiment_type': 'gate'
                 });
 
@@ -78,7 +77,7 @@ require(['statsig-js-cdn', 'statsig', 'jquery'], function(statsigCdn, statsigMan
                         'event': 'experiment_viewed',
                         'experiment_name': experimentName,
                         'variant_name': result.getGroupName ? result.getGroupName() : result.groupName || 'unknown',
-                        'statsig_stable_id': window.statsig.getStableID(),
+                        'statsig_stable_id': window.statsigClient.getContext().stableID,
                         'experiment_type': 'experiment'
                     });
 
@@ -101,7 +100,7 @@ require(['statsig-js-cdn', 'statsig', 'jquery'], function(statsigCdn, statsigMan
                         'event': 'experiment_viewed',
                         'experiment_name': configName,
                         'variant_name': result.getGroupName ? result.getGroupName() : result.groupName || 'default',
-                        'statsig_stable_id': window.statsig.getStableID(),
+                        'statsig_stable_id': window.statsigClient.getContext().stableID,
                         'experiment_type': 'config'
                     });
 
@@ -122,7 +121,7 @@ require(['statsig-js-cdn', 'statsig', 'jquery'], function(statsigCdn, statsigMan
         // Push initial statsig:ready event to dataLayer to notify GTM
         window.dataLayer.push({
             'event': 'statsig:ready',
-            'statsig_stable_id': window.statsig.getStableID()
+            'statsig_stable_id': window.statsigClient.getContext().stableID
         });
         console.log('Statsig: Pushed statsig:ready event to dataLayer');
 
@@ -166,7 +165,7 @@ require(['statsig-js-cdn', 'statsig', 'jquery'], function(statsigCdn, statsigMan
             });
         }
 
-        // add to cart tracking
+        // add to cart tracking 
         $("#product-addtocart-button").on('click', function() {
             var productId = $('input[name="sku"]').val() || null;
             statsigManager.logEvent('add_to_cart', null, {
